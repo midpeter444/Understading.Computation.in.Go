@@ -36,6 +36,10 @@ type LessThan struct {
 	right Reducible
 }
 
+type Variable struct {
+	name string
+}
+
 
 /* ---[ Implementations of Reducible ]--- */
 
@@ -149,6 +153,10 @@ func (b Boolean) String() string {
 
 func (lt LessThan) String() string {
 	return fmt.Sprintf("%v < %v", lt.left, lt.right)
+}
+
+func (v Variable) String() string {
+	return return v.name
 }
 
 
