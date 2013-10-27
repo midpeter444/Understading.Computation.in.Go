@@ -47,6 +47,23 @@ type Assign struct {
 	expression Reducible
 }
 
+type If struct {
+	condition Reducible
+	consequence Reducible
+	alternative Reducible
+}
+
+type While struct {
+	condition Reducible
+	body Reducible
+}
+
+// TODO: should hold a slice of Reducibles, not just a "pair"
+type Sequence struct {
+	first Reducible
+	second Reducible
+}
+
 type Env map[string]Reducible
 
 
@@ -113,14 +130,32 @@ func (d DoNothing) Evaluate(env Env) (Reducible, Env) {
 	return d, env
 }
 
-func (a Assign) Evaluate(env Env) (Reducible, Env) {
-	var r Reducible
-	r = a
+// many of the statment/sequence types all need the same
+// pattern for a full Evaluate, so common version
+// put into a single function
+func generalEval(r Reducible, env Env) (Reducible, Env) {
 	for r.IsReducible() {
 		r, env = r.Reduce(env)
 	}
-	return r, env
+	return r, env	
 }
+
+func (a Assign) Evaluate(env Env) (Reducible, Env) {
+	return generalEval(a, env)
+}
+
+func (ifStmt If) Evaluate(env Env) (Reducible, Env) {
+	return generalEval(ifStmt, env)
+}
+
+func (seq Sequence) Evaluate(env Env) (Reducible, Env) {
+	return generalEval(seq, env)
+}
+
+func (while While) Evaluate(env Env) (Reducible, Env) {
+	return generalEval(while, env)
+}
+
 
 
 func (n Number) Reduce(env Env) (Reducible, Env) {
@@ -203,6 +238,39 @@ func (a Assign) Reduce(env Env) (Reducible, Env) {
 	}
 }
 
+func (ifStmt If) Reduce(env Env) (Reducible, Env) {
+	if ifStmt.condition.IsReducible() {
+		var r Reducible
+		r, env = ifStmt.condition.Reduce(env)
+		return If{r, ifStmt.consequence, ifStmt.alternative}, env
+	} else {
+		trueBool := Boolean{true} 
+		if ifStmt.condition == trueBool {
+			return ifStmt.consequence, env
+		} else {
+			return ifStmt.alternative, env
+		}
+	}
+}
+
+func (seq Sequence) Reduce(env Env) (Reducible, Env) {
+	switch seq.first.(type) {
+	case DoNothing:
+		return seq.second, env
+	default:
+		var newFirst Reducible
+		newFirst, env = seq.first.Reduce(env)
+		newSeq := Sequence{newFirst, seq.second}
+		return newSeq, env
+	}
+}
+
+func (while While) Reduce(env Env) (Reducible, Env) {
+	ifStmt := If{while.condition, Sequence{while.body, while}, DoNothing{}}
+	return ifStmt, env
+}
+
+
 
 func (n Number) IsReducible() bool {
 	return false
@@ -235,6 +303,18 @@ func (v Variable) IsReducible() bool {
 }
 
 func (a Assign) IsReducible() bool {
+	return true
+}
+
+func (ifStmt If) IsReducible() bool {
+	return true
+}
+
+func (seq Sequence) IsReducible() bool {
+	return true
+}
+
+func (while While) IsReducible() bool {
 	return true
 }
 
@@ -273,6 +353,21 @@ func (a Assign) String() string {
 	return fmt.Sprintf("«%v = %v»", a.name, a.expression)
 }
 
+func (ifStmt If) String() string {
+	return fmt.Sprintf("if (%v) { %v } else { %v }", ifStmt.condition,
+		ifStmt.consequence, ifStmt.alternative)
+}
+
+func (seq Sequence) String() string {
+	return fmt.Sprintf("«%v; %v»", seq.first, seq.second)
+}
+
+func (while While) String() string {
+	return fmt.Sprintf("while (%v) { %v }",
+		while.condition,
+		while.body)
+}
+
 
 /* ---[ Machine ]--- */
 
@@ -280,17 +375,18 @@ type Machine struct {
 	expression Reducible
 }
 
-func (m *Machine) step(env Env) Env {
+func (m *Machine) Step(env Env) Env {
 	m.expression, env = m.expression.Reduce(env)
 	return env
 }
 
-func (m *Machine) run(env Env) {
+func (m *Machine) Run(env Env) Env {
 	for m.expression.IsReducible() {
 		fmt.Printf("%v\n", m.expression)
-		env = m.step(env)
+		env = m.Step(env)
 	}
 	fmt.Printf("%v\n", m.expression)
+	return env
 }
 
 
@@ -340,7 +436,7 @@ func main() {
 
 	println("------- Machine Test 1 ---------")
 	machine := Machine{m}
-	machine.run(env)
+	machine.Run(env)
 
 
 	println("------ Boolean and LessThan -------")
@@ -361,7 +457,7 @@ func main() {
 	x := Variable{"x"}
 	y := Variable{"y"}
 	machine = Machine{ Add{x,y} } 
-	machine.run(Env{"x": Number{3}, "y": Number{4}})
+	machine.Run(Env{"x": Number{3}, "y": Number{4}})
 
 	println("------ Assign -------")
 	assign := Assign{"x", Add{Variable{"x"}, Number{1}}}
